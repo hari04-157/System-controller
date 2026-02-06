@@ -1,0 +1,8 @@
+ollama
+pyautogui
+SpeechRecognition
+pyaudio
+send2trash
+socket
+subprocess
+pywhatkit
