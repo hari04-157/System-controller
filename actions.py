@@ -6,8 +6,14 @@ import psutil
 import pyttsx3 
 import webbrowser 
 from send2trash import send2trash
+import screen_brightness_control as sbc
 # REMOVED: from AppOpener import open as app_open... (This fixes the crash)
 import pywhatkit
+# ... existing imports ...
+import winreg  # Built-in, for Night Mode
+from ctypes import cast, POINTER
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
 # --- FIXED VOICE FUNCTION ---
 def speak(text):
@@ -115,6 +121,54 @@ def play_youtube(query):
     speak(f"Playing {query} on YouTube.")
     pywhatkit.playonyt(query)
 
+# --- NEW FEATURES: VOLUME & NIGHT MODE ---
+
+# --- ROBUST VOLUME CONTROL (Keyboard Method) ---
+# This bypasses the crashing pycaw library and uses media keys directly.
+
+def volume_control(command):
+    try:
+        # 1. VOLUME UP
+        if "up" in command or "increase" in command:
+            speak("Increasing volume.")
+            # Pressing it 5 times gives a noticeable boost (10%)
+            for _ in range(5):
+                pyautogui.press("volumeup")
+
+        # 2. VOLUME DOWN
+        elif "down" in command or "decrease" in command:
+            speak("Decreasing volume.")
+            for _ in range(5):
+                pyautogui.press("volumedown")
+
+        # 3. SET SPECIFIC VOLUME (e.g. "Set volume to 50")
+        elif "set" in command:
+            try:
+                # Extract the number (e.g. 50)
+                val = int(command.split("|")[1])
+                speak(f"Setting volume to {val} percent.")
+                
+                # Hack: Reset to 0 first, then go up.
+                # Windows usually has 50 steps (2% per step).
+                # So to get to 0, we press down 50 times.
+                for _ in range(50):
+                    pyautogui.press("volumedown")
+                
+                # Now go up to the target level
+                # target / 2 gives the number of key presses needed
+                steps = int(val / 2)
+                for _ in range(steps):
+                    pyautogui.press("volumeup")
+                    
+            except Exception as e:
+                print(f"Volume Set Error: {e}")
+                speak("I couldn't set that specific level.")
+                
+    except Exception as e:
+        print(f"Volume Action Error: {e}")
+        speak("I encountered a problem adjusting the volume.")
+
+# (You can remove the old 'get_volume_control' function entirely, it is no longer needed)
 # --- COMMAND ACTIONS ---
 
 def system_control(command):
@@ -313,3 +367,99 @@ def make_whatsapp_call(args):
     except Exception as e:
         print(f"WhatsApp Call Error: {e}")
         speak("I encountered an error trying to place the call.")
+
+# --- NIGHT MODE CONTROL ---
+def night_mode_control(state):
+    """Toggles Windows Dark Mode (Apps & System)."""
+    speak(f"Turning Dark Mode {state}...")
+    try:
+        # 1. Define the Registry Path
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        
+        # 2. Determine Value (0 = Dark, 1 = Light)
+        # If user says "on", we want Dark Mode (Value 0)
+        # If user says "off", we want Light Mode (Value 1)
+        value = 0 if state == "on" else 1 
+        
+        # 3. Open Registry Key
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+        except:
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path)
+        
+        # 4. Set both Apps and System theme
+        winreg.SetValueEx(key, "AppsUseLightTheme", 0, winreg.REG_DWORD, value)
+        winreg.SetValueEx(key, "SystemUsesLightTheme", 0, winreg.REG_DWORD, value)
+        
+        winreg.CloseKey(key)
+        
+        speak(f"Dark mode is now {state}.")
+        
+    except Exception as e:
+        print(f"Night Mode Error: {e}")
+        speak("I could not change the theme.")
+
+# --- REAL WINDOWS NIGHT LIGHT (via Settings) ---
+def night_light_control(state):
+    """
+    Opens Windows Settings to toggle the real Night Light feature.
+    """
+    speak("Toggling Windows Night Light.")
+    
+    # 1. Open the specific Settings Page
+    os.system("start ms-settings:nightlight")
+    
+    # 2. Wait for the window to load (Adjust time if your PC is slow)
+    time.sleep(2.0) 
+    
+    # 3. Press 'Space' to toggle the button
+    # (The "Turn on now" button is usually selected by default)
+    pyautogui.press('space') 
+    
+    # 4. Close the window
+    time.sleep(0.5)
+    pyautogui.hotkey('alt', 'f4')
+
+# --- BRIGHTNESS CONTROL ---
+def brightness_control(command):
+    try:
+        # Get current brightness (returns a list, we take the first screen)
+        current = sbc.get_brightness()
+        if not current:
+            speak("I cannot detect a screen to adjust.")
+            return
+            
+        current_level = current[0]
+        
+        # 1. SET SPECIFIC VALUE (e.g. "Set brightness to 50")
+        if "set" in command:
+            try:
+                val = int(command.split("|")[1])
+                # Ensure value is between 0 and 100
+                new_level = max(0, min(100, val)) 
+                sbc.set_brightness(new_level)
+                speak(f"Brightness set to {new_level} percent.")
+            except:
+                speak("I couldn't understand the brightness level.")
+        
+        # 2. INCREASE
+        elif "up" in command or "increase" in command:
+            if current_level >= 100:
+                speak("Brightness is already at maximum.")
+            else:
+                new_level = min(100, current_level + 10)
+                sbc.set_brightness(new_level)
+                speak("Brightness increased.")
+
+        # 3. DECREASE
+        elif "down" in command or "decrease" in command or "dim" in command:
+            if current_level <= 0:
+                speak("Brightness is already at minimum.")
+            else:
+                new_level = max(0, current_level - 10)
+                sbc.set_brightness(new_level)
+                speak("Brightness decreased.")
+                
+    except Exception as e:
+        print(f"Brightness Error: {e}")
+        speak("I encountered a problem adjusting the brightness.")

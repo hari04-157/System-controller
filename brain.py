@@ -6,6 +6,45 @@ import re
 def fast_track_command(text):
     text = text.lower().strip()
     
+    if "volume" in text:
+        if "up" in text or "increase" in text:
+            return {"tool": "volume", "args": "up"}
+        if "down" in text or "decrease" in text:
+            return {"tool": "volume", "args": "down"}
+        if "set" in text:
+            # Extracts numbers like "75" from "set volume to 75"
+            nums = re.findall(r'\d+', text)
+            if nums:
+                return {"tool": "volume", "args": f"set|{nums[0]}"}
+
+    # --- NEW: NIGHT MODE ---
+    if "night mode" in text or "dark mode" in text:
+        if "on" in text or "enable" in text:
+            return {"tool": "night_mode", "args": "on"}
+        if "off" in text or "disable" in text:
+            return {"tool": "night_mode", "args": "off"}
+    
+# ... inside fast_track_command ...
+
+    # --- NIGHT LIGHT ---
+    if "night light" in text or "blue light" in text:
+        # Since we are just toggling the button, we don't strictly need "on/off" logic 
+        # for the simpler version, but we can pass it anyway.
+        return {"tool": "night_light", "args": "toggle"}
+    
+    # ... inside fast_track_command ...
+
+    # --- NEW: BRIGHTNESS ---
+    if "brightness" in text:
+        if "up" in text or "increase" in text or "high" in text:
+            return {"tool": "brightness", "args": "up"}
+        if "down" in text or "decrease" in text or "low" in text or "dim" in text:
+            return {"tool": "brightness", "args": "down"}
+        if "set" in text:
+            nums = re.findall(r'\d+', text)
+            if nums:
+                return {"tool": "brightness", "args": f"set|{nums[0]}"}
+
     # 1. Open App / Website
     if text.startswith("open ") or text.startswith("launch "):
         target = text.replace("open ", "").replace("launch ", "").strip()
@@ -96,7 +135,16 @@ def get_command(user_text):
     10. "whatsapp_call": Make audio or video calls.
        - "Call Harish" -> {"tool": "whatsapp_call", "args": "Harish|audio"}
        - "Video call Dad" -> {"tool": "whatsapp_call", "args": "Dad|video"}
-       
+    
+    11. "volume": Control audio levels.
+        - "Volume up" -> {"tool": "volume", "args": "up"}
+        - "Decrease volume" -> {"tool": "volume", "args": "down"}
+        - "Set volume to 50" -> {"tool": "volume", "args": "set|50"}
+    
+    12. "night_mode": Toggle system theme.
+        - "Night mode on" -> {"tool": "night_mode", "args": "on"}
+        - "Dark mode off" -> {"tool": "night_mode", "args": "off"}
+
     OUTPUT FORMAT:
     Return ONLY valid JSON. Example: {"tool": "close_app", "args": "whatsapp"}
     """

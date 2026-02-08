@@ -7,6 +7,7 @@ import threading
 import socket      # <--- NEW IMPORT
 import subprocess  # <--- NEW IMPORT
 from visualizer import JarvisHUD 
+import pythoncom
 
 hud = None
 
@@ -32,6 +33,7 @@ def ensure_ollama_server():
         print("[System] Neural Engine attached.")
 
 def run_jarvis_logic():
+    pythoncom.CoInitialize()
     r = sr.Recognizer()
     r.pause_threshold = 0.6 
     r.dynamic_energy_threshold = True 
@@ -87,6 +89,10 @@ def run_jarvis_logic():
                     elif tool == "whatsapp": actions.send_whatsapp(args)
                     elif tool == "whatsapp_call": actions.make_whatsapp_call(args)
                     elif tool == "youtube": actions.play_youtube(args) 
+                    elif tool == "night_light": actions.night_light_control(args)
+                    elif tool == "brightness": actions.brightness_control(args)
+                    elif tool == "volume": actions.volume_control(args)
+                    elif tool == "night_mode": actions.night_mode_control(args)
                     elif tool == "search":
                         actions.speak(f"Searching for {args}")
                         import webbrowser
