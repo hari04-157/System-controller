@@ -16,6 +16,27 @@ def fast_track_command(text):
             nums = re.findall(r'\d+', text)
             if nums:
                 return {"tool": "volume", "args": f"set|{nums[0]}"}
+    
+    # --- NEW: SCREENSHOT ---
+    if "screenshot" in text:
+        return {"tool": "screenshot", "args": ""}
+
+    # --- NEW: SCREEN RECORDING ---
+    if "screen record" in text or "record screen" in text or "recording" in text:
+        if "start" in text or "begin" in text:
+            return {"tool": "screen_record", "args": "start"}
+        if "stop" in text or "end" in text:
+            return {"tool": "screen_record", "args": "stop"}
+    
+    # --- NEW: SYSTEM STATUS ---
+    if "system status" in text or "battery" in text or "cpu" in text or "report" in text:
+        return {"tool": "status", "args": ""}
+
+    # --- NEW: WIKIPEDIA ---
+    # Triggered by "Who is", "What is", "Tell me about"
+    if text.startswith("who is ") or text.startswith("what is ") or text.startswith("tell me about "):
+        query = text.replace("who is ", "").replace("what is ", "").replace("tell me about ", "").strip()
+        return {"tool": "wiki", "args": query}
 
     # --- NEW: NIGHT MODE ---
     if "night mode" in text or "dark mode" in text:

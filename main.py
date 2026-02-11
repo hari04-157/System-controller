@@ -35,9 +35,10 @@ def ensure_ollama_server():
 def run_jarvis_logic():
     pythoncom.CoInitialize()
     r = sr.Recognizer()
-    r.pause_threshold = 0.6 
-    r.dynamic_energy_threshold = True 
-    r.energy_threshold = 400 
+    r.pause_threshold = 0.7          # Wait 1 second before stopping (Fixes "cutting off")
+    r.non_speaking_duration = 0.5    # Minimum silence to trigger processing
+    r.dynamic_energy_threshold = True # Auto-adjust for background noise
+    r.energy_threshold = 300       # (Optional) Uncomment if it's still not hearing you
 
     if hud: hud.set_state("PROCESSING", "Calibrating...")
     print("\n[System] Calibrating microphone...")
@@ -66,7 +67,7 @@ def run_jarvis_logic():
             if command_text:
                 cmd_lower = command_text.lower()
                 
-                if "exit" in cmd_lower or "stop" in cmd_lower:
+                if "exit" in cmd_lower or "quit" in cmd_lower:
                     if hud: hud.set_state("SPEAKING", "Goodbye")
                     actions.speak("Disconnecting.")
                     sys.exit()
@@ -91,6 +92,17 @@ def run_jarvis_logic():
                     elif tool == "youtube": actions.play_youtube(args) 
                     elif tool == "night_light": actions.night_light_control(args)
                     elif tool == "brightness": actions.brightness_control(args)
+                    elif tool == "screenshot": actions.take_screenshot()
+                    # ... existing tools ...
+                    elif tool == "status": actions.system_status()
+                    elif tool == "wiki": actions.wiki_search(args)
+                    elif tool == "screen_record":
+                        if "start" in args or "begin" in args:
+                            if hud: hud.set_recording(True)  # Turn ON Red Dot
+                            actions.screen_recording_control("start")
+                        else:
+                            if hud: hud.set_recording(False) # Turn OFF Red Dot
+                            actions.screen_recording_control("stop")
                     elif tool == "volume": actions.volume_control(args)
                     elif tool == "night_mode": actions.night_mode_control(args)
                     elif tool == "search":

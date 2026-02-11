@@ -78,6 +78,14 @@ class JarvisHUD:
 
         self.state = "IDLE"
         
+        # --- RECORDING INDICATOR (NEW) ---
+        # A Red Dot and "REC" text hidden by default
+        self.rec_indicator = self.canvas.create_oval(250, 20, 270, 40, fill="red", outline="white", state='hidden')
+        self.rec_text = self.canvas.create_text(230, 30, text="REC", fill="red", font=("Arial", 10, "bold"), state='hidden')
+        
+        self.is_recording = False
+        self.blink_state = False
+        
         # 3. Enable Right-Click to Quit
         self.create_context_menu()
         
@@ -106,8 +114,27 @@ class JarvisHUD:
         import sys
         sys.exit()
 
+    # --- THREAD-SAFE UPDATE METHODS (FIXES FREEZING) ---
+
     def set_state(self, new_state, text=None):
+        """Safely updates the state from the background thread."""
         self.state = new_state
+        # self.state is read by the animation loop, so direct assignment is fine here.
+
+    def set_recording(self, status):
+        """Safely schedules the GUI update on the main thread."""
+        self.root.after(0, lambda: self._update_recording_ui(status))
+
+    def _update_recording_ui(self, status):
+        """The actual UI update (Must run on Main Thread)."""
+        self.is_recording = status
+        state = 'normal' if status else 'hidden'
+        
+        try:
+            self.canvas.itemconfig(self.rec_indicator, state=state)
+            self.canvas.itemconfig(self.rec_text, state=state)
+        except:
+            pass
 
     def animate(self):
         self.root.lift()
@@ -133,6 +160,14 @@ class JarvisHUD:
             rot_speed_y = 0.02
             if random.random() > 0.5: color = "#FFFFFF"
             else: color = "#00FFFF"
+
+        # --- BLINK LOGIC FOR RECORDING ---
+        if self.is_recording:
+            # Randomly toggle blink for "recording" effect
+            if random.random() < 0.05: 
+                self.blink_state = not self.blink_state
+                state = 'normal' if self.blink_state else 'hidden'
+                self.canvas.itemconfig(self.rec_indicator, state=state)
 
         for p in self.particles:
             p.update(rot_speed_x, rot_speed_y, color)

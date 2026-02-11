@@ -14,7 +14,11 @@ import winreg  # Built-in, for Night Mode
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-
+import numpy as np
+import cv2
+from datetime import datetime
+import threading
+import wikipedia
 # --- FIXED VOICE FUNCTION ---
 def speak(text):
     """Speaks text aloud. Initializes engine every time to prevent freezing."""
@@ -50,6 +54,23 @@ def is_match(name1, name2):
 # --- ROBUST APP CLOSER ---
 def find_and_kill_process(user_app_name):
     user_app_name = user_app_name.lower().strip()
+    
+    # --- 1. FORBIDDEN KEYWORDS (Prevent System Crashes) ---
+    # These words are too broad and will kill system processes if used.
+    forbidden_keywords = ["microsoft", "windows", "system", "service", "host", "runtime", "nvidia", "intel", "amd"]
+    
+    if user_app_name in forbidden_keywords:
+        speak(f"Closing {user_app_name} is unsafe. Please specify the exact app name.")
+        return False
+
+    # --- 2. PROTECTED APPS (Prevent Suicide) ---
+    # Jarvis lives inside these apps, so we must never kill them.
+    protected_apps = ["code", "visual studio code", "python", "python3", "cmd", "powershell", "terminal", "explorer", "obs64"]
+    
+    if user_app_name in protected_apps:
+        speak(f"I cannot close {user_app_name} because it is a protected system application.")
+        return False
+
     aliases = {
         "edge": "msedge", "microsoft edge": "msedge",
         "chrome": "chrome", "google chrome": "chrome",
@@ -62,24 +83,41 @@ def find_and_kill_process(user_app_name):
     
     target_process = aliases.get(user_app_name, user_app_name)
     killed_count = 0
+    
+    safe_pids = get_safe_pids()
 
     for proc in psutil.process_iter(['pid', 'name']):
         try:
             if proc.info['pid'] < 100: continue 
+            if proc.info['pid'] in safe_pids: continue 
+
             p_name = proc.info['name'].lower().replace(".exe", "")
             
+            # Extra Safety: Don't kill VS Code or Python unless explicitly asked (and we blocked that above)
+            if ("code" in p_name or "python" in p_name) and user_app_name not in ["code", "python"]:
+                continue
+
+            # 1. Exact Match
             if p_name == target_process:
                 proc.kill()
                 killed_count += 1
                 continue
 
+            # 2. Partial Match (With Restrictions)
+            # Only allow partial match if the user input is specific enough (more than 3 chars)
+            # AND the process isn't a critical system service.
             if len(user_app_name) > 3 and user_app_name in p_name:
-                proc.kill()
-                killed_count += 1
+                # Extra check: Don't kill processes starting with "service" or "system"
+                if not p_name.startswith("service") and not p_name.startswith("system"):
+                    proc.kill()
+                    killed_count += 1
                 
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
             
+    if killed_count == 0:
+        speak(f"I couldn't find {user_app_name} running.")
+        
     return killed_count > 0
 
 def find_folder_recursive(folder_name):
@@ -463,3 +501,124 @@ def brightness_control(command):
     except Exception as e:
         print(f"Brightness Error: {e}")
         speak("I encountered a problem adjusting the brightness.")
+
+# --- SCREENSHOT & RECORDING (CUSTOM PATHS) ---
+
+def take_screenshot():
+    """Takes a screenshot and saves it to your specific OneDrive folder."""
+    try:
+        folder_path = r"C:\harish\OneDrive\Pictures\Screenshots"
+        os.makedirs(folder_path, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"Screenshot_{timestamp}.png"
+        save_path = os.path.join(folder_path, filename)
+        
+        speak("Taking screenshot.")
+        img = pyautogui.screenshot()
+        img.save(save_path)
+        
+        speak("Screenshot saved.")
+        os.startfile(folder_path)
+        
+    except Exception as e:
+        print(f"Screenshot Error: {e}")
+        speak("I failed to take the screenshot.")
+
+# --- GLOBAL FLAG FOR RECORDING ---
+is_recording = False
+
+def record_screen_thread():
+    """Background thread that saves video to your specific Videos folder."""
+    global is_recording
+    
+    folder_path = r"C:\Users\chand\Videos\Screen Recordings"
+    os.makedirs(folder_path, exist_ok=True)
+
+    screen_size = pyautogui.size() 
+    fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"Recording_{timestamp}.avi"
+    save_path = os.path.join(folder_path, filename)
+    
+    out = cv2.VideoWriter(save_path, fourcc, 20.0, screen_size)
+    
+    print(f"[System] Recording started: {save_path}")
+    
+    try:
+        while is_recording:
+            img = pyautogui.screenshot()
+            frame = np.array(img)
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            out.write(frame)
+            # CRITICAL FIX: Add a tiny sleep to let other apps run
+            time.sleep(0.05) 
+            
+    except Exception as e:
+        print(f"Recording Error: {e}")
+    finally:
+        out.release()
+        print(f"[System] Video saved to: {save_path}")
+
+def screen_recording_control(command):
+    """Controls the start/stop logic for recording."""
+    global is_recording
+    
+    if "start" in command or "begin" in command:
+        if is_recording:
+            speak("I am already recording.")
+        else:
+            is_recording = True
+            speak("Screen recording started.")
+            # Start the thread
+            t = threading.Thread(target=record_screen_thread)
+            t.daemon = True # Ensures thread dies if main app closes
+            t.start()
+            
+    elif "stop" in command or "end" in command:
+        if not is_recording:
+            speak("I am not recording anything.")
+        else:
+            is_recording = False
+            speak("Recording stopped.")
+
+# --- SYSTEM VITALS & KNOWLEDGE ---
+
+def system_status():
+    """Reads out Battery, CPU, and RAM usage."""
+    try:
+        # 1. Battery
+        battery = psutil.sensors_battery()
+        plugged = "plugged in" if battery.power_plugged else "on battery"
+        percent = battery.percent
+        
+        # 2. CPU & RAM
+        cpu = psutil.cpu_percent(interval=1)
+        ram = psutil.virtual_memory().percent
+        
+        status_msg = (f"System is {plugged} at {percent} percent power. "
+                      f"CPU usage is {cpu} percent. "
+                      f"RAM usage is {ram} percent.")
+        
+        speak(status_msg)
+        
+    except Exception as e:
+        print(f"Status Error: {e}")
+        speak("I could not read the system vitals.")
+
+def wiki_search(query):
+    """Searches Wikipedia and reads the summary."""
+    speak(f"Searching Wikipedia for {query}...")
+    try:
+        # Get 2 sentences only to keep it short
+        results = wikipedia.summary(query, sentences=2)
+        speak("According to Wikipedia:")
+        speak(results)
+    except wikipedia.exceptions.DisambiguationError:
+        speak("There are too many results for that topic. Please be more specific.")
+    except wikipedia.exceptions.PageError:
+        speak("I could not find any article matching that topic.")
+    except Exception as e:
+        print(f"Wiki Error: {e}")
+        speak("I encountered an error searching Wikipedia.")
