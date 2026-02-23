@@ -19,6 +19,55 @@ import cv2
 from datetime import datetime
 import threading
 import wikipedia
+import brain
+
+def kill_workspace_server():
+    """Hunts down and kills any running Flask workspace servers in the background."""
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            # Check if it is a python process running our specific app
+            cmdline = proc.info.get('cmdline')
+            if cmdline and 'workspace_app.py' in cmdline:
+                proc.kill()
+                print(f"[System] Terminated old workspace server (PID: {proc.info['pid']})")
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
+def open_workspace(workspace_type):
+    """Launches the dedicated local Flask chat application."""
+    if workspace_type in ["defence", "code"]:
+        # 1. Kill any existing server first so port 5050 is completely free!
+        kill_workspace_server()
+        
+        # --- THE FIX: TELL THE BRAIN TO ENGAGE GHOST TYPER ---
+        try:
+            brain.set_workspace_context(workspace_type)
+        except Exception as e:
+            print(f"[Context Error]: {e}")
+        # ----------------------------------------------------
+        
+        speak(f"Initializing {workspace_type} space.")
+        
+        # 2. Launch the new Flask app with the specific persona
+        subprocess.Popen(["python", "workspace_app.py", workspace_type])
+        
+        # 3. Give the local server a second to boot up, then open your browser
+        time.sleep(2)
+        import webbrowser
+        webbrowser.open("http://127.0.0.1:5050")
+        
+    elif workspace_type == "default" or workspace_type == "close":
+        speak("Server terminated.")
+        
+        # --- THE FIX: TELL THE BRAIN TO RETURN TO NORMAL ---
+        try:
+            brain.set_workspace_context("default")
+        except Exception as e:
+            pass
+        # ---------------------------------------------------
+        
+        # Kills the server so the port is freed up!
+        kill_workspace_server()
 # --- FIXED VOICE FUNCTION ---
 def speak(text):
     """Speaks text aloud. Initializes engine every time to prevent freezing."""
@@ -54,18 +103,10 @@ def is_match(name1, name2):
 # --- ROBUST APP CLOSER ---
 def find_and_kill_process(user_app_name):
     user_app_name = user_app_name.lower().strip()
-    
-    # --- 1. FORBIDDEN KEYWORDS (Prevent System Crashes) ---
-    # These words are too broad and will kill system processes if used.
-    forbidden_keywords = ["microsoft", "windows", "system", "service", "host", "runtime", "nvidia", "intel", "amd"]
-    
-    if user_app_name in forbidden_keywords:
-        speak(f"Closing {user_app_name} is unsafe. Please specify the exact app name.")
-        return False
 
     # --- 2. PROTECTED APPS (Prevent Suicide) ---
     # Jarvis lives inside these apps, so we must never kill them.
-    protected_apps = ["code", "visual studio code", "python", "python3", "cmd", "powershell", "terminal", "explorer", "obs64"]
+    protected_apps = ["code", "microsoft", "visual studio code", "python", "python3", "cmd", "powershell", "terminal", "obs64"]
     
     if user_app_name in protected_apps:
         speak(f"I cannot close {user_app_name} because it is a protected system application.")
@@ -622,3 +663,20 @@ def wiki_search(query):
     except Exception as e:
         print(f"Wiki Error: {e}")
         speak("I encountered an error searching Wikipedia.")
+
+def type_text_to_ui(text):
+    """Acts as a Ghost Typer to instantly dictate text into the active window."""
+    print(f"[Ghost Typer] Dictating: {text}")
+    
+    # Optional: You can uncomment the line below if you want Jarvis to beep or 
+    # acknowledge he is typing, but staying silent feels more seamless!
+    # speak("Dictating.") 
+    
+    try:
+        # Types the exact words you said lightning-fast
+        pyautogui.write(text, interval=0.01)
+        time.sleep(0.1)
+        # Hits enter to send the message in your web UI
+        pyautogui.press('enter')
+    except Exception as e:
+        print(f"Ghost Typer Error: {e}")

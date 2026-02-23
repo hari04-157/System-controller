@@ -1,11 +1,28 @@
 import ollama
 import json
 import re
+current_workspace = "default"
+
+def set_workspace_context(workspace_name):
+    global current_workspace
+    current_workspace = workspace_name
 
 # --- FAST TRACK: SKIPS AI FOR SPEED ---
 def fast_track_command(text):
     text = text.lower().strip()
+
+    if "new chat" in text or "clear chat" in text or "start new chat" in text:
+        return {"tool": "hotkey", "args": "alt+n"}
     
+    if "open defence workspace" in text or "defence space" in text or "defence workspace" in text:
+        return {"tool": "workspace", "args": "defence"}
+        
+    if "open code space" in text or "coding space" in text or "code workspace" in text:
+        return {"tool": "workspace", "args": "code"}
+        
+    if "close workspace" in text or "exit workspace" in text:
+        return {"tool": "workspace", "args": "close"}
+
     if "volume" in text:
         if "up" in text or "increase" in text:
             return {"tool": "volume", "args": "up"}
@@ -102,12 +119,19 @@ def fast_track_command(text):
 
     return None
 
+    
+
 def get_command(user_text):
     # STEP 1: Try Fast Track (0.01s)
     fast_decision = fast_track_command(user_text)
     if fast_decision:
         return fast_decision
-
+    
+    
+    # --- GHOST TYPER REROUTE ---
+    # If a workspace is open, instantly type the text instead of using AI
+    if current_workspace != "default":
+        return {"tool": "type_text", "args": user_text}
     # STEP 2: Fallback to AI (2-5s)
     system_prompt = """
     You are a Windows Automation Agent. Map the user's request to the correct JSON tool.

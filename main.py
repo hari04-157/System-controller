@@ -35,8 +35,8 @@ def ensure_ollama_server():
 def run_jarvis_logic():
     pythoncom.CoInitialize()
     r = sr.Recognizer()
-    r.pause_threshold = 0.7          # Wait 1 second before stopping (Fixes "cutting off")
-    r.non_speaking_duration = 0.5    # Minimum silence to trigger processing
+    r.pause_threshold = 0.9        # Wait 1 second before stopping (Fixes "cutting off")
+    r.non_speaking_duration = 0.8   # Minimum silence to trigger processing
     r.dynamic_energy_threshold = True # Auto-adjust for background noise
     r.energy_threshold = 300       # (Optional) Uncomment if it's still not hearing you
 
@@ -89,12 +89,14 @@ def run_jarvis_logic():
                     elif tool == "hotkey": actions.press_keys(args)
                     elif tool == "whatsapp": actions.send_whatsapp(args)
                     elif tool == "whatsapp_call": actions.make_whatsapp_call(args)
+                    elif tool == "type_text": actions.type_text_to_ui(args)
                     elif tool == "youtube": actions.play_youtube(args) 
                     elif tool == "night_light": actions.night_light_control(args)
                     elif tool == "brightness": actions.brightness_control(args)
                     elif tool == "screenshot": actions.take_screenshot()
                     # ... existing tools ...
                     elif tool == "status": actions.system_status()
+                    elif tool == "workspace": actions.open_workspace(args)
                     elif tool == "wiki": actions.wiki_search(args)
                     elif tool == "screen_record":
                         if "start" in args or "begin" in args:

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis // {{ workspace }}</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+
+    <script>
+        window.MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+            svg: { fontCache: 'global' }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+        :root {
+            --bg-sidebar: #0d1117; --bg-main: #161b22; --bg-input: #21262d;
+            --text-main: #c9d1d9; --text-muted: #8b949e; --border: #30363d; --accent: #58a6ff;
+        }
+        body { margin: 0; display: flex; height: 100vh; background: var(--bg-main); color: var(--text-main); font-family: -apple-system, sans-serif; }
+
+        /* SIDEBAR */
+        #sidebar { width: 260px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 15px; }
+        
+        .new-chat-btn { background: var(--accent); color: #090909; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; text-align: center; margin-bottom: 20px; transition: 0.2s;}
+        .new-chat-btn:hover { opacity: 0.9; }
+        
+        .history-list { overflow-y: auto; flex-grow: 1; }
+        
+        /* History Item Layout */
+        .history-item { 
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px; border-radius: 6px; cursor: pointer; font-size: 13px; 
+            color: var(--text-muted); margin-bottom: 2px;
+        }
+        .history-item:hover { background: var(--bg-input); color: var(--text-main); }
+        .history-item.active { background: rgba(88, 166, 255, 0.15); color: var(--text-main); border-left: 3px solid var(--accent); }
+        
+        .history-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1; }
+        
+        /* Delete Button (Trash Icon) */
+        .delete-btn {
+            opacity: 0; color: #ff6b6b; font-weight: bold; padding: 2px 6px; border-radius: 4px;
+            font-size: 14px; margin-left: 5px; transition: 0.2s;
+        }
+        .history-item:hover .delete-btn { opacity: 1; }
+        .delete-btn:hover { background: rgba(255, 107, 107, 0.2); }
+
+        /* MAIN CHAT */
+        #main-area { flex-grow: 1; display: flex; flex-direction: column; height: 100%; position: relative; }
+        #chat-wrapper { flex-grow: 1; overflow-y: auto; padding: 20px 10%; display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth;}
+        
+        .message-row { display: flex; gap: 15px; margin-bottom: 10px; }
+        .avatar { width: 28px; height: 28px; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; }
+        .user-av { background: #333; color: #ddd; }
+        .ai-av { background: var(--accent); color: #000; }
+        
+        .message-content { flex-grow: 1; line-height: 1.6; font-size: 15px; overflow-wrap: break-word; max-width: 100%; }
+        
+        /* Markdown Styles */
+        .message-content p { margin-top: 0; }
+        .message-content pre { background: #0d1117; padding: 12px; border-radius: 6px; overflow-x: auto; border: 1px solid var(--border); }
+        .message-content code { background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 4px; font-family: monospace; }
+        .message-content pre code { background: transparent; padding: 0; }
+
+        /* INPUT */
+        #input-container { padding: 20px 10%; background: var(--bg-main); border-top: 1px solid var(--border); }
+        .input-box { display: flex; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        .input-box:focus-within { border-color: var(--accent); }
+        input { flex-grow: 1; background: transparent; border: none; padding: 8px; color: var(--text-main); font-size: 15px; outline: none; }
+        
+        .icon-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 8px; transition: 0.2s; }
+        .icon-btn:hover { color: var(--text-main); }
+
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <div style="font-weight: bold; margin-bottom: 15px; letter-spacing: 1px;">JARVIS // {{ workspace }}</div>
+    <div class="new-chat-btn" onclick="createNewSession()">+ New Chat</div>
+    <div style="font-size: 11px; font-weight: bold; color: #555; margin-bottom: 5px; text-transform: uppercase;">History</div>
+    <div class="history-list" id="session-list"></div>
+</div>
+
+<div id="main-area">
+    <div id="chat-wrapper"></div>
+    
+    <div id="input-container">
+        <div class="input-box">
+            <input type="file" id="file-upload" style="display: none;" onchange="handleFileUpload(event)">
+            <button class="icon-btn" onclick="document.getElementById('file-upload').click()">📎</button>
+            <input type="text" id="user-input" placeholder="Message Jarvis..." autocomplete="off" onkeypress="handleEnter(event)">
+            <button class="icon-btn" onclick="sendMessage()">➤</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentSessionId = null;
+    const chatBox = document.getElementById('chat-wrapper');
+    const inputField = document.getElementById('user-input');
+
+    // 1. AUTO-FOCUS LOGIC (Fixes Ghost Typer)
+    window.onload = () => { inputField.focus(); refreshSessions(); };
+    document.body.addEventListener('click', (e) => {
+        if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.classList.contains('history-item')) inputField.focus();
+    });
+
+    // 2. MATH PROTECTION (Fixes Formulas)
+    function renderContent(text) {
+        const mathMatches = [];
+        
+        // Protect Block Math $$...$$ using @@@
+        text = text.replace(/\$\$([\s\S]*?)\$\$/g, (m) => { 
+            mathMatches.push(m); 
+            return `@@@MATH_BLOCK_${mathMatches.length-1}@@@`; 
+        });
+        
+        // Protect Inline Math $...$ using @@@
+        text = text.replace(/\$([^\$\n]+?)\$/g, (m) => { 
+            mathMatches.push(m); 
+            return `@@@MATH_INLINE_${mathMatches.length-1}@@@`; 
+        });
+        
+        let html = marked.parse(text);
+        
+        // Restore Math
+        html = html.replace(/@@@MATH_BLOCK_(\d+)@@@/g, (_, i) => mathMatches[i]);
+        html = html.replace(/@@@MATH_INLINE_(\d+)@@@/g, (_, i) => mathMatches[i]);
+        return html;
+    }
+
+    async function refreshSessions() {
+        try {
+            const res = await fetch('/sessions');
+            const data = await res.json();
+            const list = document.getElementById('session-list');
+            list.innerHTML = '';
+            
+            // --- UPDATED: ALWAYS OPEN A NEW CHAT ON BOOT ---
+            if (!currentSessionId) {
+                // To prevent making 100 empty chats if you refresh the page, 
+                // we check if the top chat is already an unused "New Chat".
+                if (data.sessions.length > 0 && data.sessions[0].title.startsWith("New Chat")) {
+                    loadSession(data.sessions[0].id);
+                } else {
+                    createNewSession();
+                }
+            }
+            // -----------------------------------------------
+
+            data.sessions.forEach(s => {
+                const item = document.createElement('div');
+                item.className = `history-item ${s.id === currentSessionId ? 'active' : ''}`;
+                
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'history-title';
+                titleSpan.innerText = s.title;
+                titleSpan.onclick = () => loadSession(s.id);
+                
+                const delBtn = document.createElement('span');
+                delBtn.className = 'delete-btn';
+                delBtn.innerHTML = '🗑';
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    deleteSession(s.id);
+                };
+
+                item.appendChild(titleSpan);
+                item.appendChild(delBtn);
+                list.appendChild(item);
+            });
+        } catch(e) { console.error("Session Error:", e); }
+    }
+    async function createNewSession() {
+        const res = await fetch('/new_session', {method: 'POST'});
+        const data = await res.json();
+        await loadSession(data.id);
+        await refreshSessions();
+    }
+
+    async function deleteSession(id) {
+        if(!confirm("Delete this chat?")) return;
+        await fetch('/delete_session', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_id: id})
+        });
+        
+        // If we deleted the current session, create a new one
+        if (id === currentSessionId) {
+            currentSessionId = null;
+            await refreshSessions();
+        } else {
+            await refreshSessions();
+        }
+    }
+
+    // --- NEW: INVISIBLE HOTKEY FOR VOICE COMMANDS ---
+    document.addEventListener('keydown', (e) => {
+        if (e.altKey && e.key.toLowerCase() === 'n') {
+            e.preventDefault();
+            createNewSession();
+        }
+    });
+
+    async function loadSession(id) {
+        currentSessionId = id;
+        const res = await fetch(`/load_session/${id}`);
+        const data = await res.json();
+        chatBox.innerHTML = '';
+        
+        if(data.messages) {
+            data.messages.forEach(msg => {
+                addMessage(msg.content, msg.role === 'user' ? 'user' : 'ai');
+            });
+        }
+        
+        // Update Sidebar Highlight
+        document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
+        refreshSessions(); 
+    }
+
+    async function sendMessage(hiddenText = null, displayText = null) {
+        const uiText = displayText || inputField.value.trim();
+        const aiText = hiddenText || uiText;
+
+        if(!uiText) return;
+        
+        if (!currentSessionId) await createNewSession();
+
+        if (!displayText) inputField.value = '';
+        addMessage(uiText, 'user');
+        
+        // Save User Msg
+        fetch('/save_message', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_id: currentSessionId, role: 'user', content: aiText})
+        });
+
+        const aiRow = addMessage("", 'ai');
+        const contentDiv = aiRow.querySelector('.message-content');
+        let fullResponse = "";
+
+        try {
+            const res = await fetch('/chat', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: aiText, history: []}) 
+            });
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+
+            while(true) {
+                const {done, value} = await reader.read();
+                if(done) break;
+                fullResponse += decoder.decode(value, {stream: true});
+                contentDiv.innerHTML = renderContent(fullResponse);
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+            
+            MathJax.typesetPromise([contentDiv]);
+            
+            // Save AI Msg & Refresh Sidebar
+            await fetch('/save_message', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({session_id: currentSessionId, role: 'assistant', content: fullResponse})
+            });
+            refreshSessions(); 
+
+        } catch(e) { contentDiv.innerText = "Error: Connection Lost."; }
+    }
+
+    function addMessage(text, type) {
+        const row = document.createElement('div');
+        row.className = 'message-row';
+        
+        const avatar = document.createElement('div');
+        avatar.className = `avatar ${type === 'user' ? 'user-av' : 'ai-av'}`;
+        avatar.innerText = type === 'user' ? 'U' : 'AI';
+        
+        const content = document.createElement('div');
+        content.className = 'message-content';
+        content.innerHTML = renderContent(text);
+        
+        row.appendChild(avatar);
+        row.appendChild(content);
+        chatBox.appendChild(row);
+        chatBox.scrollTop = chatBox.scrollHeight;
+        MathJax.typesetPromise([content]);
+        return row;
+    }
+
+    function handleEnter(e) { if(e.key === 'Enter') sendMessage(); }
+    
+    async function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        const formData = new FormData(); 
+        formData.append('file', file);
+        
+        try {
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            
+            if (!data.error) {
+                // Secretly send massive text, but display simple message
+                const hiddenPrompt = `I have uploaded a document named ${data.filename}. Extracted content:\n\n${data.text}\n\nPlease analyze this.`;
+                const displayPrompt = `📎 [Attached: **${data.filename}**]`;
+                
+                sendMessage(hiddenPrompt, displayPrompt); 
+            }
+        } catch(e) { 
+            alert("Upload failed"); 
+        }
+        event.target.value = '';
+    }
+</script>
+</body>
+</html>
