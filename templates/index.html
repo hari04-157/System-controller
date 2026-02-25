@@ -55,7 +55,7 @@
         #main-area { flex-grow: 1; display: flex; flex-direction: column; height: 100%; position: relative; }
         #chat-wrapper { flex-grow: 1; overflow-y: auto; padding: 20px 10%; display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth;}
         
-        .message-row { display: flex; gap: 15px; margin-bottom: 10px; }
+        .message-row { display: flex; gap: 15px; margin-bottom: 10px; transition: opacity 0.3s; }
         .avatar { width: 28px; height: 28px; border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; }
         .user-av { background: #333; color: #ddd; }
         .ai-av { background: var(--accent); color: #000; }
@@ -96,7 +96,7 @@
             <input type="file" id="file-upload" style="display: none;" onchange="handleFileUpload(event)">
             <button class="icon-btn" onclick="document.getElementById('file-upload').click()">📎</button>
             <input type="text" id="user-input" placeholder="Message Jarvis..." autocomplete="off" onkeypress="handleEnter(event)">
-            <button class="icon-btn" onclick="sendMessage()">➤</button>
+            <button class="icon-btn" onclick="queueMessage()">➤</button>
         </div>
     </div>
 </div>
@@ -106,31 +106,27 @@
     const chatBox = document.getElementById('chat-wrapper');
     const inputField = document.getElementById('user-input');
 
-    // 1. AUTO-FOCUS LOGIC (Fixes Ghost Typer)
+    // --- NEW: QUEUE SYSTEM VARIABLES ---
+    let isGenerating = false;
+    let messageQueue = [];
+
+    // 1. AUTO-FOCUS LOGIC
     window.onload = () => { inputField.focus(); refreshSessions(); };
     document.body.addEventListener('click', (e) => {
         if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.classList.contains('history-item')) inputField.focus();
     });
 
-    // 2. MATH PROTECTION (Fixes Formulas)
+    // 2. MATH PROTECTION
     function renderContent(text) {
         const mathMatches = [];
-        
-        // Protect Block Math $$...$$ using @@@
         text = text.replace(/\$\$([\s\S]*?)\$\$/g, (m) => { 
-            mathMatches.push(m); 
-            return `@@@MATH_BLOCK_${mathMatches.length-1}@@@`; 
+            mathMatches.push(m); return `@@@MATH_BLOCK_${mathMatches.length-1}@@@`; 
         });
-        
-        // Protect Inline Math $...$ using @@@
         text = text.replace(/\$([^\$\n]+?)\$/g, (m) => { 
-            mathMatches.push(m); 
-            return `@@@MATH_INLINE_${mathMatches.length-1}@@@`; 
+            mathMatches.push(m); return `@@@MATH_INLINE_${mathMatches.length-1}@@@`; 
         });
         
         let html = marked.parse(text);
-        
-        // Restore Math
         html = html.replace(/@@@MATH_BLOCK_(\d+)@@@/g, (_, i) => mathMatches[i]);
         html = html.replace(/@@@MATH_INLINE_(\d+)@@@/g, (_, i) => mathMatches[i]);
         return html;
@@ -143,17 +139,13 @@
             const list = document.getElementById('session-list');
             list.innerHTML = '';
             
-            // --- UPDATED: ALWAYS OPEN A NEW CHAT ON BOOT ---
             if (!currentSessionId) {
-                // To prevent making 100 empty chats if you refresh the page, 
-                // we check if the top chat is already an unused "New Chat".
                 if (data.sessions.length > 0 && data.sessions[0].title.startsWith("New Chat")) {
                     loadSession(data.sessions[0].id);
                 } else {
                     createNewSession();
                 }
             }
-            // -----------------------------------------------
 
             data.sessions.forEach(s => {
                 const item = document.createElement('div');
@@ -178,6 +170,7 @@
             });
         } catch(e) { console.error("Session Error:", e); }
     }
+
     async function createNewSession() {
         const res = await fetch('/new_session', {method: 'POST'});
         const data = await res.json();
@@ -192,7 +185,6 @@
             body: JSON.stringify({session_id: id})
         });
         
-        // If we deleted the current session, create a new one
         if (id === currentSessionId) {
             currentSessionId = null;
             await refreshSessions();
@@ -201,7 +193,6 @@
         }
     }
 
-    // --- NEW: INVISIBLE HOTKEY FOR VOICE COMMANDS ---
     document.addEventListener('keydown', (e) => {
         if (e.altKey && e.key.toLowerCase() === 'n') {
             e.preventDefault();
@@ -221,26 +212,47 @@
             });
         }
         
-        // Update Sidebar Highlight
         document.querySelectorAll('.history-item').forEach(el => el.classList.remove('active'));
         refreshSessions(); 
     }
 
-    async function sendMessage(hiddenText = null, displayText = null) {
+    // --- FIXED: MESSAGE QUEUE MANAGER ---
+    function queueMessage(hiddenText = null, displayText = null) {
         const uiText = displayText || inputField.value.trim();
         const aiText = hiddenText || uiText;
 
         if(!uiText) return;
         
+        if (!displayText) inputField.value = '';
+        
+        // Render it instantly to the UI
+        const userRow = addMessage(uiText, 'user');
+        
+        // If the AI is busy, dim the message to show it is waiting in line
+        if (isGenerating) {
+            userRow.style.opacity = '0.4';
+        }
+        
+        messageQueue.push({ aiText: aiText, uiRow: userRow });
+        processQueue();
+    }
+
+    // --- FIXED: ASYNC PROCESSING LOOP ---
+    async function processQueue() {
+        if (isGenerating || messageQueue.length === 0) return;
+        
+        isGenerating = true;
+        const currentItem = messageQueue.shift();
+        
+        // Restore opacity since it's now being processed
+        currentItem.uiRow.style.opacity = '1';
+
         if (!currentSessionId) await createNewSession();
 
-        if (!displayText) inputField.value = '';
-        addMessage(uiText, 'user');
-        
         // Save User Msg
         fetch('/save_message', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({session_id: currentSessionId, role: 'user', content: aiText})
+            body: JSON.stringify({session_id: currentSessionId, role: 'user', content: currentItem.aiText})
         });
 
         const aiRow = addMessage("", 'ai');
@@ -250,7 +262,7 @@
         try {
             const res = await fetch('/chat', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({message: aiText, history: []}) 
+                body: JSON.stringify({message: currentItem.aiText, history: []}) 
             });
 
             const reader = res.body.getReader();
@@ -266,7 +278,6 @@
             
             MathJax.typesetPromise([contentDiv]);
             
-            // Save AI Msg & Refresh Sidebar
             await fetch('/save_message', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({session_id: currentSessionId, role: 'assistant', content: fullResponse})
@@ -274,6 +285,10 @@
             refreshSessions(); 
 
         } catch(e) { contentDiv.innerText = "Error: Connection Lost."; }
+
+        // Unlock and trigger the next message in the queue
+        isGenerating = false;
+        processQueue(); 
     }
 
     function addMessage(text, type) {
@@ -296,7 +311,7 @@
         return row;
     }
 
-    function handleEnter(e) { if(e.key === 'Enter') sendMessage(); }
+    function handleEnter(e) { if(e.key === 'Enter') queueMessage(); }
     
     async function handleFileUpload(event) {
         const file = event.target.files[0];
@@ -310,11 +325,9 @@
             const data = await res.json();
             
             if (!data.error) {
-                // Secretly send massive text, but display simple message
                 const hiddenPrompt = `I have uploaded a document named ${data.filename}. Extracted content:\n\n${data.text}\n\nPlease analyze this.`;
                 const displayPrompt = `📎 [Attached: **${data.filename}**]`;
-                
-                sendMessage(hiddenPrompt, displayPrompt); 
+                queueMessage(hiddenPrompt, displayPrompt); 
             }
         } catch(e) { 
             alert("Upload failed"); 

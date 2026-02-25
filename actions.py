@@ -20,6 +20,7 @@ from datetime import datetime
 import threading
 import wikipedia
 import brain
+import shutil
 
 def kill_workspace_server():
     """Hunts down and kills any running Flask workspace servers in the background."""
@@ -104,13 +105,15 @@ def is_match(name1, name2):
 def find_and_kill_process(user_app_name):
     user_app_name = user_app_name.lower().strip()
 
+    user_app_clean = user_app_name.replace(" ", "")
+
     # --- 2. PROTECTED APPS (Prevent Suicide) ---
     # Jarvis lives inside these apps, so we must never kill them.
     protected_apps = ["code", "microsoft", "visual studio code", "python", "python3", "cmd", "powershell", "terminal", "obs64"]
     
     if user_app_name in protected_apps:
         speak(f"I cannot close {user_app_name} because it is a protected system application.")
-        return False
+        return True
 
     aliases = {
         "edge": "msedge", "microsoft edge": "msedge",
@@ -119,9 +122,12 @@ def find_and_kill_process(user_app_name):
         "spotify": "spotify", "discord": "discord",
         "vlc": "vlc", "word": "winword",
         "excel": "excel", "powerpoint": "powerpnt",
-        "crunchyroll": "crunchyroll"
+        "crunchyroll": "crunchyroll",
+        "chat gpt": "chatgpt",   # <--- FIX: Maps "chat gpt" to "chatgpt"
+        "chatgpt": "chatgpt"
     }
     
+
     target_process = aliases.get(user_app_name, user_app_name)
     killed_count = 0
     
@@ -133,6 +139,8 @@ def find_and_kill_process(user_app_name):
             if proc.info['pid'] in safe_pids: continue 
 
             p_name = proc.info['name'].lower().replace(".exe", "")
+
+            p_name_clean = p_name.replace(" ", "")
             
             # Extra Safety: Don't kill VS Code or Python unless explicitly asked (and we blocked that above)
             if ("code" in p_name or "python" in p_name) and user_app_name not in ["code", "python"]:
@@ -285,7 +293,7 @@ def open_app(app_name):
 def close_app_logic(app_name):
     speak(f"Closing {app_name}")
     safe_pids = get_safe_pids()
-    target_apps = ["whatsapp", "telegram", "chrome", "msedge", "notepad", "calculator", "spotify", "vlc", "discord", "explorer"]
+    target_apps = ["whatsapp","crunchyroll", "telegram", "chrome", "msedge", "notepad", "calculator", "spotify", "vlc", "discord", "explorer"]
 
     if app_name.lower() in ["all", "everything"]:
         speak("Closing all non-essential applications.")
@@ -680,3 +688,109 @@ def type_text_to_ui(text):
         pyautogui.press('enter')
     except Exception as e:
         print(f"Ghost Typer Error: {e}")
+
+def get_clipboard_files():
+    """Uses Windows native C-types safely by declaring 64-bit pointers."""
+    import ctypes
+    
+    CF_HDROP = 15 # The Windows API code for Copied Files
+    user32 = ctypes.windll.user32
+    shell32 = ctypes.windll.shell32
+    
+    # --- THE FIX: PREVENT MEMORY TRUNCATION ---
+    # We must explicitly tell Python to use 64-bit pointers for the clipboard, 
+    # otherwise it throws an "Access Violation" reading garbage memory.
+    user32.GetClipboardData.restype = ctypes.c_void_p
+    shell32.DragQueryFileW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_wchar_p, ctypes.c_uint]
+    # ------------------------------------------
+    
+    try:
+        # 1. Check if the clipboard actually contains files
+        if not user32.IsClipboardFormatAvailable(CF_HDROP):
+            return []
+            
+        # 2. Open the clipboard
+        if not user32.OpenClipboard(0):
+            return []
+            
+        # Get the 64-bit memory handle
+        hDrop = user32.GetClipboardData(CF_HDROP)
+        if not hDrop:
+            user32.CloseClipboard()
+            return []
+            
+        # 3. Count how many files are copied
+        count = shell32.DragQueryFileW(hDrop, 0xFFFFFFFF, None, 0)
+        files = []
+        
+        # 4. Extract the exact file paths
+        for i in range(count):
+            buffer = ctypes.create_unicode_buffer(260)
+            shell32.DragQueryFileW(hDrop, i, buffer, 260)
+            files.append(buffer.value)
+            
+        user32.CloseClipboard()
+        return files
+        
+    except Exception as e:
+        print(f"Clipboard Error: {e}")
+        try:
+            user32.CloseClipboard()
+        except:
+            pass
+        return []
+
+def paste_content(target_folder_name):
+    """
+    Handles both direct pasting (Ctrl+V) and background folder pasting.
+    """
+    # TEST CASE 1: Check Clipboard
+    files_to_paste = get_clipboard_files()
+    
+    if not files_to_paste:
+        speak("No files are copied in the clipboard.")
+        return
+
+    # TEST CASE 2: User just said "paste it" without specifying a folder
+    if not target_folder_name or target_folder_name.lower() in ["it", "here"]:
+        speak("Pasting files.")
+        # If they just opened a folder, pressing Ctrl+V pastes it right there!
+        pyautogui.hotkey('ctrl', 'v')
+        return
+
+    # TEST CASE 3: User said "Paste into Downloads"
+    speak(f"Locating {target_folder_name}...")
+    dest_path = find_folder_recursive(target_folder_name)
+    
+    if not dest_path:
+        speak(f"I could not find a folder named {target_folder_name}.")
+        return
+
+    speak(f"Pasting {len(files_to_paste)} files into {target_folder_name}...")
+    
+    count = 0
+    try:
+        for src in files_to_paste:
+            if os.path.exists(src):
+                filename = os.path.basename(src)
+                final_dest = os.path.join(dest_path, filename)
+                
+                # Handle Duplicates
+                if os.path.exists(final_dest):
+                    base, ext = os.path.splitext(filename)
+                    timestamp = datetime.now().strftime("%H%M%S")
+                    final_dest = os.path.join(dest_path, f"{base}_copy_{timestamp}{ext}")
+
+                # Perform the Copy
+                if os.path.isdir(src):
+                    shutil.copytree(src, final_dest)
+                else:
+                    shutil.copy2(src, final_dest)
+                count += 1
+                
+        speak(f"Successfully pasted {count} files.")
+        os.startfile(dest_path) # Show the user the result
+        
+    except Exception as e:
+        print(f"Paste Error: {e}")
+        speak("I encountered an error moving the files.")

@@ -11,6 +11,18 @@ def set_workspace_context(workspace_name):
 def fast_track_command(text):
     text = text.lower().strip()
 
+    if "paste" in text:
+        # Check if user specified a destination
+        if "into" in text or "in" in text:
+            # logic to grab text after "into" or "in"
+            # Example: "Paste into Downloads" -> "Downloads"
+            splitter = "into" if "into" in text else "in"
+            target = text.split(splitter, 1)[1].strip()
+            return {"tool": "paste", "args": target}
+        else:
+            # User just said "Paste" without a location
+            return {"tool": "paste", "args": ""}
+
     if "new chat" in text or "clear chat" in text or "start new chat" in text:
         return {"tool": "hotkey", "args": "alt+n"}
     

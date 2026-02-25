@@ -107,6 +107,7 @@ def run_jarvis_logic():
                             actions.screen_recording_control("stop")
                     elif tool == "volume": actions.volume_control(args)
                     elif tool == "night_mode": actions.night_mode_control(args)
+                    elif tool == "paste": actions.paste_content(args)
                     elif tool == "search":
                         actions.speak(f"Searching for {args}")
                         import webbrowser
